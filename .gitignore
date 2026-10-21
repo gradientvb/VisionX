@@ -1,0 +1,33 @@
+
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.vscode/
+runs/
+*.pt
+
+experiments/results/*
+experiments/plots/*
+experiments/reports/*
+
+!experiments/results/.gitkeep
+!experiments/plots/.gitkeep
+!experiments/reports/.gitkeep
+# Model artifacts
+yolo11n_openvino_model/
+models/
+
+# Large sample videos
+assets/sample_videos/
+
+# Python and test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+# Personal or unrelated sample images
+assets/sample_images/SUNG JIN WOO WALLPAPER.jpg
