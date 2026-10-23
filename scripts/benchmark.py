@@ -1,8 +1,13 @@
 
 import csv
+import json
+import platform
 import statistics
+import sys
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from ultralytics import YOLO
@@ -20,6 +25,7 @@ REPEATS_PER_IMAGE = 10
 RESULTS_DIR = Path("experiments/results")
 SUMMARY_CSV = RESULTS_DIR / "benchmark_summary.csv"
 DETAIL_CSV = RESULTS_DIR / "benchmark_per_image.csv"
+ENVIRONMENT_JSON = RESULTS_DIR / "benchmark_environment.json"
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
@@ -29,12 +35,25 @@ CONFIGURATIONS = [
     ("OpenVINO Intel GPU", OPENVINO_MODEL, "intel:gpu"),
 ]
 
+PACKAGES_TO_RECORD = [
+    "ultralytics",
+    "torch",
+    "openvino",
+    "opencv-python",
+    "numpy",
+    "pandas",
+    "streamlit",
+    "streamlit-webrtc",
+    "av",
+]
+
 
 def get_images():
     images = sorted(
         path
         for path in IMAGE_DIR.rglob("*")
-        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+        if path.is_file()
+        and path.suffix.lower() in IMAGE_EXTENSIONS
     )
 
     if not images:
@@ -43,6 +62,48 @@ def get_images():
         )
 
     return images
+
+
+def save_environment(images):
+    """Save software and benchmark configuration before inference begins."""
+    packages = {}
+
+    for package in PACKAGES_TO_RECORD:
+        try:
+            packages[package] = version(package)
+        except PackageNotFoundError:
+            packages[package] = "not installed"
+
+    environment = {
+        "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "processor": platform.processor() or "not reported",
+        "benchmark": {
+            "image_directory": str(IMAGE_DIR),
+            "images_found": len(images),
+            "image_sizes": IMAGE_SIZES,
+            "confidence": CONFIDENCE,
+            "warmup_runs_per_configuration_and_size": WARMUP_RUNS,
+            "repeats_per_image": REPEATS_PER_IMAGE,
+            "configurations": [
+                {
+                    "backend": name,
+                    "model_path": model_path,
+                    "device": device,
+                }
+                for name, model_path, device in CONFIGURATIONS
+            ],
+        },
+        "packages": packages,
+    }
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    with ENVIRONMENT_JSON.open("w", encoding="utf-8") as file:
+        json.dump(environment, file, indent=2)
+
+    print(f"Environment JSON: {ENVIRONMENT_JSON.resolve()}")
 
 
 def run_benchmark(name, model_path, device, images):
@@ -84,8 +145,11 @@ def run_benchmark(name, model_path, device, images):
                 latencies.append(
                     (time.perf_counter() - start) * 1000
                 )
+
                 detection_counts.append(
-                    len(result.boxes) if result.boxes is not None else 0
+                    len(result.boxes)
+                    if result.boxes is not None
+                    else 0
                 )
 
             avg_ms = statistics.mean(latencies)
@@ -123,7 +187,10 @@ def write_csv(path, rows):
         return
 
     with path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(
+            file,
+            fieldnames=list(rows[0].keys()),
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -134,6 +201,9 @@ def main():
 
     for image in images:
         print(f"  - {image.name}")
+
+    # Record environment and settings before running inference.
+    save_environment(images)
 
     all_details = []
 
@@ -148,17 +218,27 @@ def main():
             print("Continuing with the next configuration.")
 
     if not all_details:
-        raise RuntimeError("No benchmark configurations completed.")
+        raise RuntimeError(
+            "No benchmark configurations completed."
+        )
 
     # Aggregate results across images and repeated predictions.
     groups = defaultdict(list)
+
     for row in all_details:
-        groups[(row["backend"], row["device"], row["image_size"])].append(row)
+        key = (
+            row["backend"],
+            row["device"],
+            row["image_size"],
+        )
+        groups[key].append(row)
 
     summary_rows = []
 
     for (backend, device, image_size), rows in groups.items():
-        image_latencies = [r["average_latency_ms"] for r in rows]
+        image_latencies = [
+            row["average_latency_ms"] for row in rows
+        ]
         average_ms = statistics.mean(image_latencies)
 
         summary_rows.append({
@@ -177,8 +257,10 @@ def main():
             "estimated_fps": round(1000 / average_ms, 2),
             "mean_detection_count": round(
                 statistics.mean(
-                    r["average_detection_count"] for r in rows
-                ), 2
+                    row["average_detection_count"]
+                    for row in rows
+                ),
+                2,
             ),
         })
 
@@ -206,6 +288,7 @@ def main():
 
     print(f"\nSummary CSV: {SUMMARY_CSV.resolve()}")
     print(f"Per-image CSV: {DETAIL_CSV.resolve()}")
+    print(f"Environment JSON: {ENVIRONMENT_JSON.resolve()}")
 
 
 if __name__ == "__main__":
