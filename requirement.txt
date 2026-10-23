@@ -1,10 +1,12 @@
-
 ultralytics
 opencv-python
 streamlit
+streamlit-webrtc
+av
 numpy
 pandas
 matplotlib
 plotly
 Pillow
 pytest
+openvino
