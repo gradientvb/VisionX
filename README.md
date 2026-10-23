@@ -107,6 +107,8 @@ Provide your own local video file; videos are not included. The script records l
 
 **Working research question:** How does adding multi-object tracking affect processing performance and track-level label consistency in a real-time object detection pipeline on consumer hardware?
 
+For detailed benchmark procedures, output files, and metric limitations, see **[docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)**.
+
 ## Tests
 
 ```powershell
